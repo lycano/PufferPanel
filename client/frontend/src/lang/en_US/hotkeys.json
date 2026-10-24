@@ -48,6 +48,7 @@
     "f l": "Focus first file/folder in the list",
     "f r": "Reload file list",
     "f u": "Upload files",
+    "f v": "Toggle grid/list view",
     "a e": "Edit Server Definition",
     "a r": "Reload Server Definiton from disk"
   },

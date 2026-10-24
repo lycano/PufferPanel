@@ -6783,6 +6783,12 @@ $mdi-icons: (
 .icon-path-separator {
   @include icon-name(chevron-right);
 }
+.icon-view-list {
+  @include icon-name(view-list);
+}
+.icon-view-grid {
+  @include icon-name(view-grid);
+}
 html[dir="ltr"] {
   .icon-back {
     @include icon-name(chevron-left);

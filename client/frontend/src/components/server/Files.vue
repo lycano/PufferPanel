@@ -8,12 +8,21 @@ import Loader from '@/components/ui/Loader.vue'
 import Overlay from '@/components/ui/Overlay.vue'
 import Editor, { skipDownload } from './files/Editor.vue'
 import Upload from './files/Upload.vue'
+import UploadProgress from './files/UploadProgress.vue'
+import { useFileDrop } from './files/drop.js'
+import { useFileKeyboard } from './files/keyboard.js'
+import { useFileSelection } from './files/selection.js'
+import { useFileSort } from './files/sort.js'
+import { useViewMode } from './files/viewMode.js'
 import TextField from '@/components/ui/TextField.vue'
 import Toggle from '@/components/ui/Toggle.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const events = inject('events')
 const toast = inject('toast')
+const ltr = inject('ltr')
+const config = inject('config')
+const userSettings = inject('userSettings')
 
 const props = defineProps({
   server: { type: Object, required: true }
@@ -22,7 +31,7 @@ const props = defineProps({
 const allowDirectoryUpload = 'webkitdirectory' in document.createElement('input')
 const canEdit = props.server.hasScope('server.files.edit')
 
-const fileEls = ref([])
+const fileListEl = ref(null)
 const files = ref(null)
 const file = ref(null)
 const fileSizeWarn = ref(false)
@@ -38,10 +47,29 @@ const selection = computed(() => {
   return (files.value || []).filter(f => f.isSelected)
 })
 
+const { viewMode, otherViewMode, toggleViewMode, registerViewModeReload, deregisterViewModeReload } = useViewMode(events, config, userSettings)
+const { sortKey, sortedFiles, setSort, sortClasses, sortIcon, ariaSort } = useFileSort(files)
+const { selectableCount, allSelected, selectFile, extendSelection, toggleSelectAll } = useFileSelection(files, sortedFiles, selection, selectAll, deselectAll)
+const { fileListHotkey, focusFirstIfRequested, onFileKeydown, registerFocusOnArrow, deregisterFocusOnArrow } = useFileKeyboard(fileListEl, sortedFiles, viewMode, ltr, currentPath, openFile, extendSelection)
+const {
+  dropUploading,
+  dropUploadState,
+  isDropTarget,
+  fileManagerClasses,
+  uploadClasses,
+  dropFolderAttr,
+  onDragEnter,
+  onDragOver,
+  onDragLeave,
+  onDrop
+} = useFileDrop(props.server, canEdit, currentPath, getCurrentPath, () => refresh())
+
 let task
 let unbindEvent
 onMounted(() => {
   refresh()
+  registerFocusOnArrow()
+  registerViewModeReload()
 
   unbindEvent = props.server.on('status', () => {
     if (selection.value.length === 0) refresh()
@@ -53,26 +81,20 @@ onMounted(() => {
 })
 
 onUnmounted(async () => {
+  deregisterViewModeReload()
+  deregisterFocusOnArrow()
   if (unbindEvent) unbindEvent()
   if (task) props.server.stopTask(task)
 })
 
 watch(currentPath, async (newPath) => {
-  const res = await props.server.getFile(newPath.map(e => e.name).join('/'))
-  files.value = res.sort(sortFiles)
+  files.value = await props.server.getFile(newPath.map(e => e.name).join('/'))
+  await focusFirstIfRequested()
 }, {deep: true})
 
 async function refresh(manual = false) {
   if (manual) files.value = null // cause visual feedback on manual refresh
-  const res = await props.server.getFile(getCurrentPath())
-  files.value = res.sort(sortFiles)
-}
-
-function sortFiles(a, b) {
-  if (a.isFile && !b.isFile) return 1
-  if (!a.isFile && b.isFile) return -1
-  if (a.name.toLowerCase() < b.name.toLowerCase()) return -1
-  return 1
+  files.value = await props.server.getFile(getCurrentPath())
 }
 
 function getCurrentPath() {
@@ -101,6 +123,14 @@ async function openFile(f, overrideWarn = false) {
       currentPath.value.push(f)
     }
   }
+}
+
+function clickFile(event, f) {
+  if (event.shiftKey || event.ctrlKey || event.metaKey) {
+    selectFile(event, f)
+    return
+  }
+  openFile(f)
 }
 
 async function saveFile({close}) {
@@ -146,6 +176,23 @@ function formatFileSize(size) {
   if (size < Math.pow(2, 30)) return numFormat.format(size / Math.pow(2, 20)) + ' MiB'
   if (size < Math.pow(2, 40)) return numFormat.format(size / Math.pow(2, 30)) + ' GiB'
   return numFormat.format(size / Math.pow(2, 40)) + ' TiB'
+}
+
+const dateFormat = new Intl.DateTimeFormat(
+  [locale.value.replace('_', '-'), 'en'],
+  { day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: 'numeric' }
+)
+function displaySize(file) {
+  return file.isFile ? formatFileSize(file.size) : ''
+}
+
+function fileClasses(file) {
+  return ['file', file.isSelected ? 'selected' : '', isDropTarget(file) ? 'drop-target' : '']
+}
+
+function formatModified(file) {
+  if (!file.modifyTime) return ''
+  return dateFormat.format(new Date(file.modifyTime * 1000))
 }
 
 function startCreateFile() {
@@ -265,14 +312,6 @@ function download(file) {
   document.body.removeChild(a)
 }
 
-function fileListHotkey() {
-  if (fileEls.value[0]) fileEls.value[0].focus()
-}
-
-function trackFileEl(index) {
-  return (el) => fileEls.value[index] = el
-}
-
 function contextActionsForFile(file) {
   const actions = []
   if (file.name !== '..') {
@@ -382,7 +421,7 @@ function selectAll() {
 </script>
 
 <template>
-  <div v-hotkey="'Control+a'" class="file-manager" @hotkey="selectAll()">
+  <div v-hotkey="'Control+a'" :class="fileManagerClasses()" @hotkey="selectAll()" @dragenter="onDragEnter" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop">
     <div class="header">
       <h2 v-text="t('servers.Files')" />
       <h3>
@@ -395,11 +434,12 @@ function selectAll() {
       <span class="spacer" />
       <span v-if="selection.length === 0" class="controls">
         <btn v-if="canEdit" v-hotkey="'f a'" variant="icon" :tooltip="t('files.ArchiveCurrent')" @click="archiveCurrentDirectory()"><icon name="archive" /></btn>
-        <upload v-if="canEdit" :path="getCurrentPath()" :server="server" hotkey="f u" @uploaded="refresh()" />
+        <upload v-if="canEdit" :class="uploadClasses()" :path="getCurrentPath()" :server="server" hotkey="f u" @uploaded="refresh()" />
         <upload v-if="canEdit && allowDirectoryUpload" :path="getCurrentPath()" :server="server" folder hotkey="f d" @uploaded="refresh()" />
         <btn v-if="canEdit" v-hotkey="'f c f'" variant="icon" :tooltip="t('files.CreateFile')" @click="startCreateFile()"><icon name="file-create" /></btn>
         <btn v-if="canEdit" v-hotkey="'f c d'" variant="icon" :tooltip="t('files.CreateFolder')" @click="startCreateFolder()"><icon name="folder-create" /></btn>
         <btn v-hotkey="'f r'" variant="icon" :tooltip="t('files.Refresh')" @click="refresh(true)"><icon name="reload" /></btn>
+        <btn v-hotkey="'f v'" variant="icon" :tooltip="t(`files.ShowAs.${otherViewMode()}`)" @click="toggleViewMode()"><icon :name="`view-${otherViewMode()}`" /></btn>
       </span>
       <span v-else class="controls">
         <span class="selection-count" v-text="t('files.Selected', undefined, selection.length)" />
@@ -408,30 +448,40 @@ function selectAll() {
         <btn v-hotkey="'Escape'" variant="icon" :tooltip="t('files.DeselectAll')" @click="deselectAll()"><icon name="close" /></btn>
       </span>
     </div>
-    <div v-hotkey="'f l'" class="file-list" @hotkey="fileListHotkey">
+    <div ref="fileListEl" v-hotkey="'f l'" :class="['file-list', `view-${viewMode}`]" @hotkey="fileListHotkey">
       <loader v-if="!Array.isArray(files)" />
-      <!-- eslint-disable-next-line vue/no-template-shadow -->
-      <a v-for="(file, index) in files" v-else :key="file.name" :ref="trackFileEl(index)" tabindex="0" :class="['file', file.isSelected ? 'selected' : '']" @click="openFile(file)" @keydown.enter="openFile(file)" @keydown.space="file.isSelected = !file.isSelected">
-        <icon class="file-icon" :name="getIcon(file)" />
-        <div class="details">
-          <div class="name">{{ file.name }}</div>
-          <div v-if="file.isFile" class="size">{{ formatFileSize(file.size) }}</div>
+      <template v-else>
+        <div v-if="viewMode === 'list'" class="file-list-header">
+          <toggle :model-value="allSelected" :disabled="selectableCount === 0" class="file-select" @update:model-value="toggleSelectAll()" />
+          <btn v-for="column in ['name', 'size', 'modified']" :key="column" variant="text" :class="sortClasses(column)" :aria-sort="ariaSort(column)" @click="setSort(column)">
+            <span v-text="t(`files.Column.${column}`)" />
+            <icon v-if="sortKey === column" :name="sortIcon()" />
+          </btn>
         </div>
-        <toggle v-if="file.name !== '..'" v-model="file.isSelected" class="file-select" @click.stop="" />
-        <context-menu :title="file.name" :actions="contextActionsForFile(file)">
-          <template #title>
-            <li class="context-title">
-              <span class="name" v-text="file.name" />
-              <span v-if="file.isFile" class="size" v-text="formatFileSize(file.size)" />
-            </li>
-          </template>
-          <template #activator="contextMenu">
-            <btn v-if="contextMenu.canOpen" tabindex="-1" variant="icon" @click.stop="contextMenu.onClick">
-              <icon name="menu" />
-            </btn>
-          </template>
-        </context-menu>
-      </a>
+        <!-- eslint-disable-next-line vue/no-template-shadow -->
+        <a v-for="(file, index) in sortedFiles" :key="file.name" tabindex="0" :class="fileClasses(file)" :data-folder="dropFolderAttr(file)" @click="clickFile($event, file)" @keydown="onFileKeydown($event, index)" @keydown.space.self.prevent="selectFile($event, file)">
+          <icon class="file-icon" :name="getIcon(file)" />
+          <div class="details">
+            <div class="name" :title="file.name">{{ file.name }}</div>
+            <div class="size">{{ displaySize(file) }}</div>
+            <div class="modified">{{ formatModified(file) }}</div>
+          </div>
+          <toggle v-if="file.name !== '..'" :model-value="!!file.isSelected" class="file-select" @click.stop.prevent="selectFile($event, file)" />
+          <context-menu :title="file.name" :actions="contextActionsForFile(file)">
+            <template #title>
+              <li class="context-title">
+                <span class="name" v-text="file.name" />
+                <span v-if="file.isFile" class="size" v-text="formatFileSize(file.size)" />
+              </li>
+            </template>
+            <template #activator="contextMenu">
+              <btn v-if="contextMenu.canOpen" tabindex="-1" variant="icon" @click.stop="contextMenu.onClick">
+                <icon name="menu" />
+              </btn>
+            </template>
+          </context-menu>
+        </a>
+      </template>
     </div>
     <overlay v-model="fileSizeWarn" closable :title="t('files.OpenLargeFile')">
       <btn color="error" @click="fileSizeWarn = false"><icon name="close" />{{ t('common.Cancel') }}</btn>
@@ -449,6 +499,7 @@ function selectAll() {
       <text-field v-model="newItemName" />
       <btn color="primary" :disabled="!newItemName || newItemName.trim() === ''" @click="archiveSelected()"><icon name="check" />{{ t('files.ArchiveSelected') }}</btn>
     </overlay>
+    <upload-progress :uploading="dropUploading" :upload-state="dropUploadState" />
     <overlay v-model="loading" class="loader-overlay">
       <loader />
     </overlay>

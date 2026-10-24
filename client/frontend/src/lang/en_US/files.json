@@ -1,5 +1,18 @@
 {
   "Refresh": "Refresh",
+  "View": {
+    "grid": "Grid",
+    "list": "List"
+  },
+  "ShowAs": {
+    "grid": "Show as grid",
+    "list": "Show as list"
+  },
+  "Column": {
+    "name": "Name",
+    "size": "Size",
+    "modified": "Modified"
+  },
   "CreateFile": "Create file",
   "CreateFolder": "Create folder",
   "ArchiveCurrent": "Archive current folder",

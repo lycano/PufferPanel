@@ -631,6 +631,10 @@ func (p *Server) GetItem(name string) (*FileData, error) {
 				newFile.Size = infoData.Size()
 				newFile.Modified = infoData.ModTime().Unix()
 				newFile.Extension = filepath.Ext(file.Name())
+			} else if file.IsDir() {
+				if infoData, err := file.Info(); err == nil {
+					newFile.Modified = infoData.ModTime().Unix()
+				}
 			}
 
 			fileNames[i+offset] = newFile

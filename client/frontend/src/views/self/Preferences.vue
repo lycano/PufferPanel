@@ -11,11 +11,21 @@ import ThemeSetting from '@/components/ui/ThemeSetting.vue'
 const { t, locale } = useI18n()
 const toast = inject('toast')
 const themeApi = inject('theme')
+const config = inject('config')
+const userSettings = inject('userSettings')
 
 const loading = ref(false)
 const theme = ref(themeApi.getActiveTheme())
 const themeSettings = ref({})
 const selectedLocale = ref(locale.value)
+// 'default' (or unset) means the panel default is used
+const fileView = ref(userSettings.get('fileView') || 'default')
+const panelFileView = config.defaultFileView === 'list' ? 'list' : 'grid'
+const fileViews = [
+  { label: t('users.PanelDefault', { value: t(`files.View.${panelFileView}`) }), value: 'default' },
+  { label: t('files.View.grid'), value: 'grid' },
+  { label: t('files.View.list'), value: 'list' }
+]
 
 onMounted(async () => {
   loading.value = true
@@ -38,6 +48,9 @@ function savePreferences() {
   })
 
   themeApi.setTheme(theme.value, settings)
+  if ((userSettings.get('fileView') || 'default') !== fileView.value) {
+    userSettings.set('fileView', fileView.value)
+  }
   toast.success(t('users.PreferencesUpdated'))
 }
 
@@ -63,6 +76,7 @@ function updateThemeSetting(name, newSetting) {
     </dropdown>
     <dropdown v-model="theme" :options="$theme.getThemes()" :label="t('common.theme.Theme')" @change="themeChanged()" />
     <theme-setting v-for="(setting, name) in themeSettings" :key="name" :model-value="setting" @update:modelValue="updateThemeSetting(name, $event)" />
+    <dropdown v-model="fileView" :options="fileViews" :label="t('users.FileView')" />
     <btn color="primary" @click="savePreferences()"><icon name="save" />{{ t('users.SavePreferences') }}</btn>
   </div>
 </template>

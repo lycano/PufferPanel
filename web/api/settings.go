@@ -187,6 +187,7 @@ var editableStringEntries = []config.StringEntry{
 	config.CompanyName,
 	config.DefaultTheme,
 	config.ThemeSettings,
+	config.DefaultFileView,
 	config.MasterUrl,
 }
 var editableBoolEntries = []config.BoolEntry{

@@ -31,6 +31,8 @@
   "Permissions": "Permissions",
   "Preferences": "Preferences",
   "SavePreferences": "Save Preferences",
+  "FileView": "File Manager View",
+  "PanelDefault": "Panel default ({value})",
   "2fa": "Two factor authentication",
   "OtpAbreviated": "2FA",
   "OtpEnabled": "2FA Enabled",

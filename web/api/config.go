@@ -34,6 +34,7 @@ func panelConfig(c *gin.Context) {
 			Name: config.CompanyName.Value(),
 		},
 		RegistrationEnabled: config.RegistrationEnabled.Value(),
+		DefaultFileView:     config.DefaultFileView.Value(),
 	})
 }
 
@@ -41,6 +42,7 @@ type EditableConfig struct {
 	Themes              ThemeConfig    `json:"themes"`
 	Branding            BrandingConfig `json:"branding"`
 	RegistrationEnabled bool           `json:"registrationEnabled"`
+	DefaultFileView     string         `json:"defaultFileView" example:"grid"`
 } //@name EditableConfigSettings
 
 type ThemeConfig struct {

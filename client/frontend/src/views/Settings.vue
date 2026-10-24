@@ -32,12 +32,18 @@ const { t } = useI18n()
 const api = inject('api')
 const toast = inject('toast')
 const themeApi = inject('theme')
+const config = inject('config')
 
 const masterUrl = ref('')
 const panelTitle = ref('')
 const registrationEnabled = ref(true)
 const theme = ref('PufferPanel')
 const themeSettings = ref([])
+const defaultFileView = ref('grid')
+const fileViews = [
+  { label: t('files.View.grid'), value: 'grid' },
+  { label: t('files.View.list'), value: 'list' }
+]
 
 const emailProviders = []
 Object.keys(emailProviderConfigs).map(provider => {
@@ -79,8 +85,11 @@ async function savePanelSettings() {
     'panel.settings.companyName': panelTitle.value,
     'panel.settings.defaultTheme': theme.value,
     'panel.settings.themeSettings': themeApi.serializeThemeSettings(themeSettings.value),
+    'panel.settings.defaultFileView': defaultFileView.value,
     'panel.registrationEnabled': registrationEnabled.value
   })
+  // the panel config is loaded once on startup, keep it current for this session
+  config.defaultFileView = defaultFileView.value
   toast.success(t('settings.Saved'))
 }
 
@@ -104,6 +113,7 @@ onMounted(async () => {
   const regEnabled = await api.settings.get('panel.registrationEnabled')
   registrationEnabled.value = (regEnabled === "true" || regEnabled === true)
   theme.value = await api.settings.get('panel.settings.defaultTheme')
+  defaultFileView.value = await api.settings.get('panel.settings.defaultFileView') === 'list' ? 'list' : 'grid'
   emailProvider.value = await api.settings.get('panel.email.provider')
   emailProviderChanged(emailProvider.value)
   Object.keys(email.value).map(async key => {
@@ -133,6 +143,7 @@ function updateThemeSetting(name, newSetting) {
       <toggle v-model="registrationEnabled" :label="t('settings.RegistrationEnabled')" :hint="t('settings.RegistrationEnabledHint')" />
       <dropdown v-model="theme" :options="$theme.getThemes()" :label="t('settings.DefaultTheme')" @change="themeChanged()" />
       <theme-setting v-for="(setting, name) in themeSettings" :key="name" :model-value="setting" @update:modelValue="updateThemeSetting(name, $event)" />
+      <dropdown v-model="defaultFileView" :options="fileViews" :label="t('settings.DefaultFileView')" :hint="t('settings.DefaultFileViewHint')" />
       <btn color="primary" @click="savePanelSettings()"><icon name="save" />{{ t('settings.SavePanelSettings') }}</btn>
     </div>
     <div class="email">
